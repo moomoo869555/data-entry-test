@@ -1,49 +1,42 @@
 import streamlit as st
 import pandas as pd
-import os
-
-# Name of your local Excel file
-FILE_NAME = "data_entry_results.xlsx"
+from streamlit_gsheets import GSheetsConnection
 
 st.title("Data Entry Test Form")
-st.write("Please fill out the fields below. The data will be verified and saved locally.")
+st.write("Please fill out the fields. Data is saved directly to Google Sheets.")
+
+# Establish the connection to Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# Fetch existing data from "Sheet1" to make sure we don't overwrite it
+# ttl=0 ensures we always get the freshest data
+existing_data = conn.read(worksheet="Sheet1", usecols=list(range(3)), ttl=0)
+existing_data = existing_data.dropna(how="all") # Clean up any empty rows
 
 # Create the input form
 with st.form("entry_form", clear_on_submit=True):
-    # You can easily design your own input fields here
     name = st.text_input("Full Name *")
     age = st.number_input("Age", min_value=0, max_value=120, step=1)
     email = st.text_input("Email Address *")
     
-    # The submit button
     submitted = st.form_submit_button("Submit Data")
 
     if submitted:
-        # --- Data Verification ---
         if not name or not email:
             st.error("Validation Error: Name and Email are required fields.")
         elif "@" not in email or "." not in email:
             st.error("Validation Error: Please enter a valid email address.")
         else:
-            # --- Save to Excel ---
             # Format the new entry
-            new_data = pd.DataFrame({
-                "Name": [name], 
-                "Age": [age], 
-                "Email": [email]
-            })
+            new_row = pd.DataFrame([{"Name": name, "Age": age, "Email": email}])
             
             try:
-                # Check if the file already exists
-                if os.path.exists(FILE_NAME):
-                    # Read existing data and append the new row
-                    existing_data = pd.read_excel(FILE_NAME)
-                    updated_data = pd.concat([existing_data, new_data], ignore_index=True)
-                    updated_data.to_excel(FILE_NAME, index=False)
-                else:
-                    # Create a new file if it doesn't exist
-                    new_data.to_excel(FILE_NAME, index=False)
-                    
-                st.success(f"Success! {name}'s data has been saved to {FILE_NAME}.")
+                # Combine old data with the new row
+                updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+                
+                # Push the updated data back to Google Sheets
+                conn.update(worksheet="Sheet1", data=updated_df)
+                
+                st.success(f"Success! {name}'s data has been saved to Google Sheets.")
             except Exception as e:
-                st.error(f"An error occurred while saving to Excel: {e}")
+                st.error(f"An error occurred: {e}")
